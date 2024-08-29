@@ -78,13 +78,15 @@ def get_classifiers():
             'criterion': ['gini'],
             'bootstrap': [True]
         }),
-        'SVM': (Pipeline([
-                ('scaler', StandardScaler()),
-                ('svc', SVC(probability=True, class_weight='balanced', kernel='rbf', random_state=42))
-            ]), {
-            'svc__C': [0.01, 0.1, 1, 10, 100],
-            'svc__gamma': [0.001, 0.01, 0.1, 1]
+        'SVM': (SVC(probability=True, class_weight='balanced', kernel='rbf'), {
         }),
+        # 'SVM': (Pipeline([
+        #         ('scaler', StandardScaler()),
+        #         ('svc', SVC(probability=True, class_weight='balanced', kernel='rbf', random_state=42))
+        #     ]), {
+        #     'svc__C': [0.01, 0.1, 1, 10, 100],
+        #     'svc__gamma': [0.001, 0.01, 0.1, 1]
+        # }),
         'LogisticRegression': (Pipeline([
                 ('scaler', StandardScaler()),
                 ('lr', LogisticRegression(class_weight='balanced', random_state=42, solver='liblinear'))
@@ -97,15 +99,18 @@ def get_classifiers():
     }
 
 
-
-def compute_metrics(y_true, y_pred, y_pred_prob):
+def compute_metrics(y_true, y_pred, y_pred_prob, target_sensitivity=None):
     """
-    Compute evaluation metrics and their confidence intervals.
+    Compute evaluation metrics and their confidence intervals, with the option
+    to fix sensitivity.
 
     Parameters:
     y_true (array-like): True labels.
     y_pred (array-like): Predicted labels.
     y_pred_prob (array-like): Predicted probabilities.
+    target_sensitivity (float, optional): Target sensitivity value. If None,
+                                         the optimal threshold based on Youden's
+                                         Index is used.
 
     Returns:
     dict: Evaluation metrics and their confidence intervals.
@@ -117,8 +122,16 @@ def compute_metrics(y_true, y_pred, y_pred_prob):
     optimal_idx = np.argmax(youdens_index)
     optimal_threshold = thresholds[optimal_idx]
 
-    # Use the optimal threshold for new predictions
-    y_pred_optimal = (y_pred_prob >= optimal_threshold).astype(int)
+    # If target sensitivity is specified, find the threshold that achieves it
+    if target_sensitivity is not None:
+        sensitivity_idx = np.argmin(np.abs(tpr - target_sensitivity))
+        target_threshold = thresholds[sensitivity_idx]
+
+    # Use the appropriate threshold for new predictions
+    if target_sensitivity is not None:
+        y_pred_optimal = (y_pred_prob >= target_threshold).astype(int)
+    else:
+        y_pred_optimal = (y_pred_prob >= optimal_threshold).astype(int)
 
     # Compute metrics using optimal threshold predictions
     accuracy = accuracy_score(y_true, y_pred_optimal)
@@ -157,93 +170,6 @@ def compute_confidence_interval(metric_value, n, z=1.96):
     ci_lower = metric_value - z * se
     ci_upper = metric_value + z * se
     return (ci_lower, ci_upper)
-
-
-# def get_classifiers():
-#     """
-#     Returns a dictionary of classifiers with their hyperparameter grids to be evaluated.
-#     """
-#     return {
-#         'RandomForest': (RandomForestClassifier(class_weight='balanced'), {
-#             'n_estimators': [100, 200, 300, 400, 500],
-#             'max_features': ['auto', 'sqrt', 'log2'],
-#             'max_depth': [4, 6, 8, 10, 12],
-#             'criterion': ['gini', 'entropy']
-#         }),
-#         'SVM': (SVC(probability=True, class_weight='balanced', kernel='rbf'), {
-#             'C': [0.1, 1, 10],
-#             'gamma': [0.1, 0.01],
-#             'kernel': ['rbf']
-#         }),
-#         # 'SVM': (SVC(probability=True, class_weight='balanced'), {
-#         #     'C': [0.1, 1, 10, 100, 1000],
-#         #     'gamma': [1, 0.1, 0.01, 0.001, 0.0001],
-#         #     'kernel': ['rbf', 'poly', 'sigmoid']
-#         # }),
-#         'LogisticRegression': (LogisticRegression(class_weight='balanced'), {
-#             'penalty': ['l1', 'l2'],
-#             'C': [0.01, 0.1, 1, 10, 100]
-#         }),
-#         'NaiveBayes': (GaussianNB(), {})
-#     }
-
-
-# def compute_metrics(y_true, y_pred, y_pred_prob):
-#     """
-#     Compute evaluation metrics and their confidence intervals.
-#
-#     Parameters:
-#     y_true (array-like): True labels.
-#     y_pred (array-like): Predicted labels.
-#     y_pred_prob (array-like): Predicted probabilities.
-#
-#     Returns:
-#     dict: Evaluation metrics and their confidence intervals.
-#     """
-#
-#     accuracy = accuracy_score(y_true, y_pred)
-#     roc_auc = roc_auc_score(y_true, y_pred_prob) if y_pred_prob is not None else None
-#     cm = confusion_matrix(y_true, y_pred)
-#     tn, fp, fn, tp = cm.ravel()
-#     specificity = tn / (tn + fp) if (tn + fp) else 0
-#     sensitivity = recall_score(y_true, y_pred)
-#     ppv = precision_score(y_true, y_pred)
-#     npv = tn / (tn + fn) if (tn + fn) else 0
-#     f1 = f1_score(y_true, y_pred)
-#
-#     metrics = {
-#         'accuracy': accuracy,
-#         'roc_auc': roc_auc,
-#         'specificity': specificity,
-#         'sensitivity': sensitivity,
-#         'ppv': ppv,
-#         'npv': npv,
-#         'f1_score': f1
-#     }
-#
-#     ci = {}
-#     for metric, value in metrics.items():
-#         if value is not None:
-#             ci[metric] = compute_confidence_interval(value, y_true.size)
-#
-#     return metrics, ci
-#
-#
-# def compute_confidence_interval(metric, n, alpha=0.95):
-#     """
-#     Compute confidence interval for a metric.
-#
-#     Parameters:
-#     metric (float): Metric value.
-#     n (int): Sample size.
-#     alpha (float): Confidence level.
-#
-#     Returns:
-#     tuple: Lower and upper bounds of the confidence interval.
-#     """
-#     se = np.sqrt((metric * (1 - metric)) / n)
-#     h = se * stats.norm.ppf((1 + alpha) / 2)
-#     return metric - h, metric + h
 
 
 
@@ -400,90 +326,6 @@ def train_test_split_evaluation(X, y,
 
     return results
 
-# def train_test_split_evaluation(X, y,
-#                                 test_size=0.3,
-#                                 random_state=42,
-#                                 tuning=1,
-#                                 result_path="./results",
-#                                 num_features=10,
-#                                 resampling_method=None):
-#     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state)
-#     classifiers = get_classifiers()
-#     results = {}
-#     train_results = {}
-#     test_results = {}
-#
-#     roc_path = os.path.join(result_path, "ROC_curves")
-#     ensure_directory_exists(roc_path)
-#     calibration_path = os.path.join(result_path, "Calibration_plots")
-#     dca_path = os.path.join(result_path, "DCA_curves")
-#
-#     plt.figure(figsize=(10, 8))
-#     plt.title('ROC Curves', fontsize=16)
-#     plt.plot([0, 1], [0, 1], color='navy', linestyle='--', lw=2)
-#
-#     for classifier_name, (clf, param_grid) in classifiers.items():
-#         if tuning and classifier_name == "SVM":
-#             print(f"hyperparameter_tuning for {classifier_name} classifier")
-#             clf = hyperparameter_tuning(clf, param_grid, X_train, y_train, classifier_name)
-#
-#         if resampling_method:
-#             resampling_method = SMOTE()
-#             X_train, y_train = resampling_method.fit_resample(X_train, y_train)
-#
-#         clf.fit(X_train, y_train)
-#
-#         y_pred_train = clf.predict(X_train)
-#         y_pred_prob_train = clf.predict_proba(X_train)[:, 1] if hasattr(clf, "predict_proba") else None
-#         metrics_train, ci_train = compute_metrics(y_train, y_pred_train, y_pred_prob_train)
-#         train_results[classifier_name] = {
-#             'metrics': metrics_train,
-#             'confidence_intervals': ci_train
-#         }
-#
-#         y_pred_test = clf.predict(X_test)
-#         y_pred_prob_test = clf.predict_proba(X_test)[:, 1] if hasattr(clf, "predict_proba") else None
-#         metrics_test, ci_test = compute_metrics(y_test, y_pred_test, y_pred_prob_test)
-#         test_results[classifier_name] = {
-#             'metrics': metrics_test,
-#             'confidence_intervals': ci_test
-#         }
-#
-#         plot_calibration_curve(y_test, y_pred_prob_test, classifier_name, num_features, output_dir=calibration_path)
-#         plot_dca(y_test, y_pred_prob_test, classifier_name, num_features, output_dir=dca_path)
-#
-#         # Plot ROC curve for the test set in a single figure
-#         fpr, tpr, _ = roc_curve(y_test, y_pred_prob_test)
-#         roc_auc = roc_auc_score(y_test, y_pred_prob_test)
-#         plt.plot(fpr, tpr, lw=2, label=f'{classifier_name} (AUC = {roc_auc:.2f})')
-#
-#         # Save individual ROC curve for this classifier
-#         plot_roc_curve(fpr, tpr, roc_auc, f'{classifier_name} ROC Curve',
-#                        filename=f'{classifier_name}_roc_curve_{num_features}_features.png',
-#                        output_dir=os.path.join(roc_path, classifier_name))
-#
-#         # Plot feature importance for tree-based models
-#         if classifier_name == 'RandomForest':
-#             plot_feature_importance(clf.feature_importances_, X.columns, 'Feature Importance',
-#                                     f'{classifier_name}_feature_importance.png')
-#
-#     plt.xlabel('False Positive Rate', fontsize=14)
-#     plt.ylabel('True Positive Rate', fontsize=14)
-#     plt.legend(loc='lower right', fontsize=12)
-#     plt.grid(True, linestyle='--', alpha=0.7)
-#     plt.tight_layout()
-#     filepath = os.path.join(roc_path, f'roc_curve_{num_features}_features.png')
-#     plt.savefig(filepath, dpi=300)
-#     # plt.show()
-#
-#     results['train'] = train_results
-#     results['test'] = test_results
-#
-#     return results
-
-
-
-
 
 
 def cross_validation_evaluation(X, y, cv_folds=5, tuning=False, result_path="./results",
@@ -535,7 +377,7 @@ def cross_validation_evaluation(X, y, cv_folds=5, tuning=False, result_path="./r
             y_pred = clf.predict(X_test)
             y_pred_prob = clf.predict_proba(X_test)[:, 1] if hasattr(clf, "predict_proba") else None
             y_pred_prob_all_folds.append(y_pred_prob)
-            metrics, _ = compute_metrics(y_test, y_pred, y_pred_prob)
+            metrics, _ = compute_metrics(y_test, y_pred, y_pred_prob, 0.8)
             metrics_list.append(metrics)
 
             # Collect data for ROC plotting
@@ -554,8 +396,8 @@ def cross_validation_evaluation(X, y, cv_folds=5, tuning=False, result_path="./r
             # # Plot calibration curve for each fold
             # plot_calibration_curve(y_test, y_pred_prob, f'{name} - Fold {fold}', num_features, output_dir=os.path.join(calibration_path, name))
 
-            # # Plot DCA curve for each fold
-            # plot_dca(y_test, y_pred_prob, f'{name} - Fold {fold}', num_features, output_dir=os.path.join(dca_path, name))
+            # Plot DCA curve for each fold
+            plot_dca(y_test, y_pred_prob, f'{name} - Fold {fold}', num_features, output_dir=os.path.join(dca_path, name))
 
             # Plot feature importance for tree-based models
             if hasattr(clf, 'feature_importances_'):
@@ -604,6 +446,7 @@ def cross_validation_evaluation(X, y, cv_folds=5, tuning=False, result_path="./r
 
         # Train the final model on the entire dataset and save it
         final_model = clf.fit(X, y)
+        final_model.feature_names = X.columns
         final_model_filename = os.path.join(model_path, f'{name}_{num_features}_features.pkl')
         joblib.dump(final_model, final_model_filename)
 
@@ -637,6 +480,8 @@ def evaluate_models(X, y, method='train_test_split', **kwargs):
         return train_test_split_evaluation(X, y, **kwargs)
     elif method == 'cross_validation':
         return cross_validation_evaluation(X, y, **kwargs)
+    elif method == 'cv_feature_selection_model_building':
+        return cv_feature_selection_model_building_evaluation(X, y, **kwargs)
     else:
         raise ValueError("Invalid method. Choose 'train_test_split' or 'cross_validation'.")
 
@@ -938,7 +783,7 @@ def save_classification_results(results, output_file, num_features, method='trai
                                          'Specificity (95% CI)',
                                          'PPV (95% CI)', 'NPV (95% CI)'])
 
-    elif method == 'cross_validation':
+    elif method == 'cross_validation' or method == 'cv_feature_selection_model_building':
         rows = []
         for classifier, data in results.items():
             metrics = data.get('metrics', {})
@@ -956,6 +801,7 @@ def save_classification_results(results, output_file, num_features, method='trai
         df = pd.DataFrame(rows, columns=['Classifier', 'AUC (95% CI)', 'Sensitivity (95% CI)', 'Specificity (95% CI)',
                                          'PPV (95% CI)', 'NPV (95% CI)'])
 
+
     else:
         raise ValueError("Invalid method. Choose 'train_test_split' or 'cross_validation'.")
 
@@ -964,3 +810,170 @@ def save_classification_results(results, output_file, num_features, method='trai
     save_excel_sheet(df, output_file, sheetname)
 
 
+
+
+
+
+from typing import List, Optional
+from mrmr import mrmr_classif
+from sklearn.model_selection import KFold
+from collections import defaultdict
+from sklearn.model_selection import KFold, StratifiedKFold
+from sklearn.metrics import roc_curve, roc_auc_score
+import joblib
+import matplotlib.pyplot as plt
+
+
+def cv_feature_selection_model_building_evaluation(x, y, cv_folds=5, tuning=False, result_path="./results",
+                                num_features=10, resampling_method=None) -> dict:
+    """
+    Perform feature selection using MRMR at each fold of cross-validation,
+    then build and evaluate models.
+
+    :param df: DataFrame containing features and the outcome variable.
+    :param outcome_column: The name of the outcome column.
+    :param exclude_columns: List of columns to exclude from the analysis.
+    :param num_features: Number of features to select using MRMR.
+    :param cv_folds: Number of cross-validation folds.
+    :param tuning: Whether to perform hyperparameter tuning.
+    :param result_path: Path to save the results.
+    :param resampling_method: Resampling method to handle class imbalance.
+    :return: Dictionary with evaluation results.
+    """
+
+
+    classifiers = get_classifiers()
+    results = {}
+
+    roc_data_path = os.path.join(result_path, "ROC_data")
+    ensure_directory_exists(roc_data_path)
+    prob_data_path = os.path.join(result_path, "Prob_data")
+    ensure_directory_exists(prob_data_path)
+    roc_path = os.path.join(result_path, "ROC_curves")
+    ensure_directory_exists(roc_path)
+    calibration_path = os.path.join(result_path, "Calibration_plots")
+    dca_path = os.path.join(result_path, "DCA_curves")
+    shap_path = os.path.join(result_path, "Shapley_plots")
+    importance_path = os.path.join(result_path, "Feature_Importance_plots")
+    model_path = os.path.join(result_path, "Saved_Models")
+    ensure_directory_exists(model_path)
+
+    plt.figure(figsize=(10, 8))
+    plt.title('ROC Curves', fontsize=20)
+    plt.plot([0, 1], [0, 1], color='navy', linestyle='--', lw=2)
+
+    skf = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=17)
+
+    for name, (clf, param_grid) in classifiers.items():
+        metrics_list = []
+        fpr_list = []
+        tpr_list = []
+        thresholds_list = []
+        auc_list = []
+        y_pred_prob_all_folds = []
+
+        if tuning:
+            print(f"Hyperparameter_tuning for {name} classifier")
+            clf = hyperparameter_tuning(clf, param_grid, x, y, name)
+
+        selected_feature_count = defaultdict(int)
+        for feature in x.columns:
+            selected_feature_count[feature] = 0
+
+        for fold, (train_index, test_index) in enumerate(skf.split(x, y), 1):
+            X_train, X_test = x.iloc[train_index], x.iloc[test_index]
+            y_train, y_test = y.iloc[train_index], y.iloc[test_index]
+
+            # Feature selection using MRMR
+            selected_features = mrmr_classif(X=X_train, y=y_train, K=num_features)
+            X_train = X_train[selected_features]
+            X_test = X_test[selected_features]
+
+            for feature in selected_features:
+                selected_feature_count[feature] += 1
+
+            if resampling_method:
+                X_train, y_train = resampling_method.fit_resample(X_train, y_train)
+
+            clf.fit(X_train, y_train)
+
+            y_pred = clf.predict(X_test)
+            y_pred_prob = clf.predict_proba(X_test)[:, 1] if hasattr(clf, "predict_proba") else None
+            y_pred_prob_all_folds.append(y_pred_prob)
+            metrics, _ = compute_metrics(y_test, y_pred, y_pred_prob)
+            metrics_list.append(metrics)
+
+            # Collect data for ROC plotting
+            fpr, tpr, thresholds = roc_curve(y_test, y_pred_prob)
+            roc_auc = roc_auc_score(y_test, y_pred_prob)
+            fpr_list.append(fpr)
+            tpr_list.append(tpr)
+            thresholds_list.append(thresholds)
+            auc_list.append(roc_auc)
+
+            # Plot feature importance for tree-based models
+            if hasattr(clf, 'feature_importances_'):
+                plot_feature_importance(clf.feature_importances_, X_train.columns, 'Feature Importance',
+                                        f'{name}_featureImportance_{num_features}_features.png',
+                                        output_dir=importance_path)
+
+            # Plot Shapley values
+            if num_features > 1 and name in ['RandomForest', 'XGBoost', 'LightGBM']:
+                plot_shap_values(clf, X_test, X_train.columns, f'{name}_shap_values_{num_features}_features.png',
+                                 output_dir=shap_path)
+
+
+
+        # Average metrics and confidence intervals across folds
+        averaged_metrics = {metric: np.mean([m[metric] for m in metrics_list if m[metric] is not None]) for metric in
+                            metrics_list[0]}
+        ci = {metric: compute_confidence_interval(averaged_metrics[metric], y.size) for metric in averaged_metrics}
+
+        results[name] = {
+            'metrics': averaged_metrics,
+            'confidence_intervals': ci
+        }
+
+        # Plot and save averaged ROC curve across folds
+        mean_fpr = np.linspace(0, 1, 100)
+        mean_tpr = np.mean([np.interp(mean_fpr, fpr, tpr) for fpr, tpr in zip(fpr_list, tpr_list)], axis=0)
+        mean_tpr[-1] = 1.0
+        mean_auc = np.mean(auc_list)
+
+        plt.plot(mean_fpr, mean_tpr, lw=2, label=f'{name} (AUC = {mean_auc:.2f})')
+
+        plot_roc_curve(mean_fpr, mean_tpr, mean_auc, f'{name} Averaged ROC Curve',
+                       filename=f'{name}_averaged_roc_curve_{num_features}_features.png',
+                       output_dir=os.path.join(roc_path, name))
+
+        # Align the predicted probabilities across folds by stacking them vertically
+        all_probs = np.concatenate(y_pred_prob_all_folds)
+        probs_df = pd.DataFrame({'y_pred_prob': all_probs})
+        new_excel_path = os.path.join(prob_data_path, f'{name}_predicted_probs_{num_features}_features.xlsx')
+        probs_df.to_excel(new_excel_path, index=False)
+
+        # Save the averaged ROC data
+        roc_data_avg_df = pd.DataFrame({
+            'mean_fpr': mean_fpr,
+            'mean_tpr': mean_tpr,
+        })
+        roc_data_avg_df.to_excel(
+            os.path.join(roc_data_path, f'{name}_averaged_roc_data_{num_features}_features.xlsx'), index=False)
+
+        # Train the final model on the entire dataset and save it
+        selected_feature_count_sorted = {k: v for k, v in sorted(selected_feature_count.items(), key=lambda item: item[1], reverse=True)}
+        top_features = list(selected_feature_count_sorted.keys())[:num_features]
+        final_model = clf.fit(x[top_features], y)
+        final_model.feature_names = top_features
+        final_model_filename = os.path.join(model_path, f'{name}_{num_features}_features.pkl')
+        joblib.dump(final_model, final_model_filename)
+
+    plt.xlabel('False Positive Rate', fontsize=18)
+    plt.ylabel('True Positive Rate', fontsize=18)
+    plt.legend(loc='lower right', fontsize=16)
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    filepath = os.path.join(roc_path, f'averaged_roc_curve_{num_features}_features.png')
+    plt.savefig(filepath, dpi=300)
+
+    return results
