@@ -264,7 +264,7 @@ def train_test_split_evaluation(X, y,
 
         y_pred_train = clf.predict(X_train)
         y_pred_prob_train = clf.predict_proba(X_train)[:, 1] if hasattr(clf, "predict_proba") else None
-        metrics_train, ci_train = compute_metrics(y_train, y_pred_train, y_pred_prob_train)
+        metrics_train, ci_train = compute_metrics(y_train, y_pred_train, y_pred_prob_train, None)
         train_results[classifier_name] = {
             'metrics': metrics_train,
             'confidence_intervals': ci_train
@@ -277,7 +277,7 @@ def train_test_split_evaluation(X, y,
 
         y_pred_test = clf.predict(X_test)
         y_pred_prob_test = clf.predict_proba(X_test)[:, 1] if hasattr(clf, "predict_proba") else None
-        metrics_test, ci_test = compute_metrics(y_test, y_pred_test, y_pred_prob_test)
+        metrics_test, ci_test = compute_metrics(y_test, y_pred_test, y_pred_prob_test, None)
         test_results[classifier_name] = {
             'metrics': metrics_test,
             'confidence_intervals': ci_test
@@ -377,7 +377,7 @@ def cross_validation_evaluation(X, y, cv_folds=5, tuning=False, result_path="./r
             y_pred = clf.predict(X_test)
             y_pred_prob = clf.predict_proba(X_test)[:, 1] if hasattr(clf, "predict_proba") else None
             y_pred_prob_all_folds.append(y_pred_prob)
-            metrics, _ = compute_metrics(y_test, y_pred, y_pred_prob, 0.8)
+            metrics, _ = compute_metrics(y_test, y_pred, y_pred_prob)
             metrics_list.append(metrics)
 
             # Collect data for ROC plotting
@@ -396,8 +396,8 @@ def cross_validation_evaluation(X, y, cv_folds=5, tuning=False, result_path="./r
             # # Plot calibration curve for each fold
             # plot_calibration_curve(y_test, y_pred_prob, f'{name} - Fold {fold}', num_features, output_dir=os.path.join(calibration_path, name))
 
-            # Plot DCA curve for each fold
-            plot_dca(y_test, y_pred_prob, f'{name} - Fold {fold}', num_features, output_dir=os.path.join(dca_path, name))
+            ## Plot DCA curve for each fold
+            #plot_dca(y_test, y_pred_prob, f'{name} - Fold {fold}', num_features, output_dir=os.path.join(dca_path, name))
 
             # Plot feature importance for tree-based models
             if hasattr(clf, 'feature_importances_'):

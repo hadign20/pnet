@@ -330,7 +330,7 @@ def main():
                                     roc_file = os.path.join(roc_data_path_val, f'ROC_{model_name}_{sh}_{num_features}.xlsx')
                                     roc_df.to_excel(roc_file, index=False)
 
-                                    metrics, ci = compute_metrics(y_validation, model.predict(X_validation), predicted_probs, 0.8)
+                                    metrics, ci = compute_metrics(y_validation, model.predict(X_validation), predicted_probs, None)
 
                                     row = [
                                         model_name,
