@@ -9,7 +9,9 @@ from imblearn.combine import SMOTEENN
 from src.visualization.plotting import *
 import joblib
 
-from src.model.model_building import compute_metrics, compute_confidence_interval
+from src.model.model_building import compute_metrics, compute_confidence_interval, remove_outliers, fill_na, normalize
+
+
 
 
 #=========================================
@@ -34,20 +36,20 @@ categorical_columns = []
 FEATURE_CORRELATION = True
 CORR_THRESH = 0.8
 
-FEATURE_SELECTION = True
+FEATURE_SELECTION = False
 FEATURE_SELECTION_METHOD = 'mrmr' # 'mrmr', 'pvalue', 'auc', 'composite'
 min_num_features = 1
 max_num_features = 20
 
-MODEL_BUILDING = True
+MODEL_BUILDING = False
 RESAMPLING = False
 RESAMPLING_METHOD = "SMOTEENN" # "RandomOverSampler" or "SMOTEENN"
 EVALUATION_METHOD = 'cross_validation' # 'train_test_split' or 'cross_validation' or 'cv_feature_selection_model_building'
 TEST_SIZE = 0.3
 CV_FOLDS = 5
-HYPERPARAMETER_TUNING = True
+HYPERPARAMETER_TUNING = False
 
-EXTERNAL_VALIDATION = True
+EXTERNAL_VALIDATION = False
 
 #=========================================
 def save_excel_sheet(df, filepath, sheetname, index=False):
@@ -142,6 +144,7 @@ def main():
                 print(f"Removing correlated features for sheet {sheet}")
                 print("======================================================================")
                 df = remove_collinear_features(df, CORR_THRESH)
+
 
             if FEATURE_SELECTION:
                 print("\n======================================================================")
@@ -307,6 +310,9 @@ def main():
 
                                     X_validation = validation_df[f_names]
                                     y_validation = validation_df[outcome_column]
+
+                                    X_validation = remove_outliers(X_validation)
+                                    X_validation = normalize(X_validation)
 
                                     predicted_probs = model.predict_proba(X_validation[f_names])[:, 1]
 

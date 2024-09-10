@@ -5,6 +5,7 @@ from sklearn.model_selection import train_test_split, StratifiedKFold, GridSearc
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.svm import SVC
 from sklearn.linear_model import LogisticRegression
+from sklearn.preprocessing import MinMaxScaler
 from sklearn.naive_bayes import GaussianNB
 from sklearn.metrics import (accuracy_score, roc_auc_score, confusion_matrix, classification_report,
                              precision_score, recall_score, f1_score, roc_curve)
@@ -25,6 +26,8 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
 from sklearn.metrics import make_scorer, roc_auc_score, recall_score, confusion_matrix
 import joblib
+from typing import List, Optional
+from sklearn.feature_selection import RFE
 
 
 
@@ -78,8 +81,13 @@ def get_classifiers():
             'criterion': ['gini'],
             'bootstrap': [True]
         }),
-        'SVM': (SVC(probability=True, class_weight='balanced', kernel='rbf'), {
+        # 'SVM': (SVC(probability=True, class_weight='balanced', kernel='rbf'), {
+        # }),
+        'SVM': (SVC(probability=True, class_weight='balanced', kernel='rbf', random_state=42), {
+            'C': [0.1, 1, 10, 100],  # Focus on relevant C values
+            'gamma': [0.01, 0.001, 0.0001]  # Try a range of gamma values
         }),
+
         # 'SVM': (Pipeline([
         #         ('scaler', StandardScaler()),
         #         ('svc', SVC(probability=True, class_weight='balanced', kernel='rbf', random_state=42))
@@ -220,7 +228,53 @@ def hyperparameter_tuning(clf, param_grid, X_train, y_train, name):
     # return random_search.best_estimator_
 
 
+def fill_na(X_train: pd.DataFrame,
+           X_test: pd.DataFrame) -> (pd.DataFrame, pd.DataFrame):
 
+    # Engineering missing values in numerical variables
+    # numerical_cols = [col for col in X_train.columns if X_train[col].dtypes != '0']
+    # numerical_cols = [col for col in X_train.columns if col not in categorical_columns]
+    numerical_cols = X_train.columns
+
+    for df1 in [X_train, X_test]:
+        for col in numerical_cols:
+            col_median = X_train[col].median()
+            df1[col].fillna(col_median, inplace=True)
+
+    # # Engineering missing values in categorical variables
+    # for df2 in [X_train, X_test]:
+    #     for col in categorical_columns:
+    #         col_mod = X_train[col].mode()[0]
+    #         df2[col].fillna(col_mod, inplace=True)
+
+    return X_train, X_test
+
+
+
+def remove_outliers(df):
+    out_df = df.copy()
+
+    # IQR
+    for col in df.columns:
+        Q1 = df[col].quantile(0.25)
+        Q3 = df[col].quantile(0.75)
+        IQR = Q3 - Q1
+        lower = Q1 - 1.5 * IQR
+        upper = Q3 + 1.5 * IQR
+        out_df[col] = np.where(out_df[col] < lower, lower, out_df[col])
+        out_df[col] = np.where(out_df[col] > upper, upper, out_df[col])
+
+    return out_df
+
+
+
+
+def normalize(X: pd.DataFrame):
+    scaler = MinMaxScaler()
+    cols = X.columns
+    X = scaler.fit_transform(X)
+    X = pd.DataFrame(X, columns=cols)
+    return X
 
 
 
@@ -232,6 +286,19 @@ def train_test_split_evaluation(X, y,
                                 num_features=10,
                                 resampling_method=None):
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=test_size, random_state=random_state)
+
+    # fill Null values
+    X_train, X_test = fill_na(X_train, X_test)
+
+    # remove outliers
+    X_train = remove_outliers(X_train)
+    X_test = remove_outliers(X_test)
+
+    # Normalize features
+    X_train = normalize(X_train)
+    X_test = normalize(X_test)
+
+
     classifiers = get_classifiers()
     results = {}
     train_results = {}
@@ -347,7 +414,7 @@ def cross_validation_evaluation(X, y, cv_folds=5, tuning=False, result_path="./r
     ensure_directory_exists(model_path)
 
     plt.figure(figsize=(10, 8))
-    plt.title('ROC Curves', fontsize=20)
+    plt.title('Averaged ROC Curves', fontsize=20)
     plt.plot([0, 1], [0, 1], color='navy', linestyle='--', lw=2)
 
     skf = StratifiedKFold(n_splits=cv_folds, shuffle=True, random_state=17)
@@ -361,15 +428,23 @@ def cross_validation_evaluation(X, y, cv_folds=5, tuning=False, result_path="./r
         y_pred_prob_all_folds = []
 
         if tuning:
-            print(f"Hyperparameter_tuning for {name} classifier")
+            print(f"Hyperparameter tuning for {name} classifier")
             clf = hyperparameter_tuning(clf, param_grid, X, y, name)
 
         for fold, (train_index, test_index) in enumerate(skf.split(X, y), 1):
             X_train, X_test = X.iloc[train_index], X.iloc[test_index]
             y_train, y_test = y.iloc[train_index], y.iloc[test_index]
 
+            # Remove outliers and normalize inside CV loop to prevent data leakage
+            X_train = remove_outliers(X_train)
+            X_test = remove_outliers(X_test)
+            X_train = normalize(X_train)
+            X_test = normalize(X_test)
+
+            # Fill Null values (after splitting to avoid data leakage)
+            X_train, X_test = fill_na(X_train, X_test)
+
             if resampling_method:
-                #print(f"Resampling data for {name} classifier")
                 X_train, y_train = resampling_method.fit_resample(X_train, y_train)
 
             clf.fit(X_train, y_train)
@@ -388,26 +463,15 @@ def cross_validation_evaluation(X, y, cv_folds=5, tuning=False, result_path="./r
             thresholds_list.append(thresholds)
             auc_list.append(roc_auc)
 
-            # # Plot individual ROC curve for each fold
-            # plot_roc_curve(fpr, tpr, roc_auc, f'{name} ROC Curve - Fold {fold}',
-            #                filename=f'{name}_roc_curve_fold_{fold}_{num_features}_features.png',
-            #                output_dir=os.path.join(roc_path, name))
-
-            # # Plot calibration curve for each fold
-            # plot_calibration_curve(y_test, y_pred_prob, f'{name} - Fold {fold}', num_features, output_dir=os.path.join(calibration_path, name))
-
-            ## Plot DCA curve for each fold
-            #plot_dca(y_test, y_pred_prob, f'{name} - Fold {fold}', num_features, output_dir=os.path.join(dca_path, name))
-
             # Plot feature importance for tree-based models
+            feature_columns = X_train.columns  # Save feature names before normalization
             if hasattr(clf, 'feature_importances_'):
-                plot_feature_importance(clf.feature_importances_, X.columns, 'Feature Importance',
-                                        f'{name}_featureImportance_{num_features}_features.png',
-                                        output_dir=importance_path)
+                plot_feature_importance(clf.feature_importances_, feature_columns, 'Feature Importance',
+                                        f'{name}_featureImportance_{num_features}_features.png', output_dir=importance_path)
 
             # Plot Shapley values
             if num_features > 1 and name in ['RandomForest', 'XGBoost', 'LightGBM']:
-                plot_shap_values(clf, X_test, X.columns, f'{name}_shap_values_{num_features}_features.png', output_dir=shap_path)
+                plot_shap_values(clf, X_test, feature_columns, f'{name}_shap_values_{num_features}_features.png', output_dir=shap_path)
 
         # Average metrics and confidence intervals across folds
         averaged_metrics = {metric: np.mean([m[metric] for m in metrics_list if m[metric] is not None]) for metric in metrics_list[0]}
@@ -430,7 +494,7 @@ def cross_validation_evaluation(X, y, cv_folds=5, tuning=False, result_path="./r
                        filename=f'{name}_averaged_roc_curve_{num_features}_features.png',
                        output_dir=os.path.join(roc_path, name))
 
-        # Align the predicted probabilities across folds by stacking them vertically
+        # Save predicted probabilities across folds in a separate file
         all_probs = np.concatenate(y_pred_prob_all_folds)
         probs_df = pd.DataFrame({'y_pred_prob': all_probs})
         new_excel_path = os.path.join(prob_data_path, f'{name}_predicted_probs_{num_features}_features.xlsx')
@@ -459,6 +523,7 @@ def cross_validation_evaluation(X, y, cv_folds=5, tuning=False, result_path="./r
     plt.savefig(filepath, dpi=300)
 
     return results
+
 
 
 
